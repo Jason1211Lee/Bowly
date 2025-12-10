@@ -200,6 +200,29 @@ body {
   white-space: nowrap;
 }
 
+/* 逐格輸入相關樣式 */
+.frame {
+  width: 110px;
+  padding: 6px;
+  border: 1px dashed transparent;
+}
+.frame-label {
+  font-size: 0.85rem;
+}
+.frame-input {
+  text-align: center;
+}
+.frame-input.active {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 0.15rem rgba(13,110,253,0.15);
+}
+.keypad-key {
+  width: 58px;
+}
+.keypad-action {
+  width: 58px;
+}
+
 /* ==========================================
    反應式設計（RWD）
    ========================================== */

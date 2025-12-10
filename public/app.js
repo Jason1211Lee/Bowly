@@ -24,25 +24,10 @@ let statsChart = null;
  * @returns {boolean} - 是否成功添加
  */
 function addGame(record) {
-  // 檢查是否同日期已存在
-  const existingIndex = records.findIndex(r => r.date === record.date);
-  if (existingIndex !== -1) {
-    // 若用戶確認覆蓋
-    if (confirm(`${record.date} 已有紀錄，是否覆蓋？`)) {
-      records[existingIndex] = {
-        ...record,
-        id: records[existingIndex].id, // 保留原 ID
-        createdAt: records[existingIndex].createdAt
-      };
-    } else {
-      return false;
-    }
-  } else {
-    // 新增紀錄
-    record.id = generateId();
-    record.createdAt = Date.now();
-    records.push(record);
-  }
+  // 新增紀錄（允許同日多筆）
+  record.id = generateId();
+  record.createdAt = Date.now();
+  records.push(record);
   
   // 按日期排序
   records.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -57,7 +42,15 @@ function addGame(record) {
  * @param {string} date - ISO 格式日期
  */
 function removeGame(date) {
-  records = records.filter(r => r.date !== date);
+  // 保留向後相容性：若傳入的是 id（優先），否則視為 date 並刪除所有該日期
+  if (!date) return;
+  const isId = typeof date === 'string' && records.some(r => r.id === date);
+  if (isId) {
+    records = records.filter(r => r.id !== date);
+  } else {
+    // date 非 id，當作日期字串，刪除同日所有紀錄（舊行為）
+    records = records.filter(r => r.date !== date);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
 
@@ -301,18 +294,23 @@ function renderRecordsList() {
     listContainer.html('<p class="text-muted">暫無紀錄</p>');
     return;
   }
-
-  const listHtml = records.map((record, idx) => `
+  const listHtml = records.map((record, idx) => {
+    const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : '';
+    return `
     <div class="card mb-2">
       <div class="card-body d-flex justify-content-between align-items-center">
         <div>
-          <strong>${record.date}</strong><br>
+          <strong>${record.date}</strong> <small class="text-muted">${created}</small><br>
           <small class="text-muted">分數: ${record.score} | 全倒: ${record.strikes} | 補中: ${record.spares}</small>
         </div>
-        <button type="button" class="btn btn-sm btn-danger delete-btn" data-date="${record.date}">刪除</button>
+        <div>
+          <button type="button" class="btn btn-sm btn-outline-secondary me-2" data-id="${record.id}" data-action="view">查看</button>
+          <button type="button" class="btn btn-sm btn-danger delete-btn" data-id="${record.id}">刪除</button>
+        </div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   listContainer.html(listHtml);
 }
@@ -380,9 +378,11 @@ $(document).ready(function() {
 
   // 刪除單筆紀錄
   $(document).on('click', '.delete-btn', function() {
-    const date = $(this).data('date');
-    if (confirm(`確定要刪除 ${date} 的紀錄嗎？`)) {
-      removeGame(date);
+    const id = $(this).data('id');
+    const record = records.find(r => r.id === id);
+    const label = record ? `${record.date} ${record.createdAt ? new Date(record.createdAt).toLocaleString() : ''}` : id;
+    if (confirm(`確定要刪除 ${label} 的紀錄嗎？`)) {
+      removeGame(id);
       refreshUI();
     }
   });
@@ -445,3 +445,299 @@ $(document).ready(function() {
   $('#targetScore').val(targetScore);
   refreshUI();
 });
+
+// ==========================================
+// 逐格輸入處理（Frame-based input）
+// ==========================================
+
+// 打開逐格輸入區
+$(document).on('click', '#openFramesBtn', function() {
+  $('#framesInput').toggle();
+});
+
+// 關閉逐格輸入
+$(document).on('click', '#closeFramesBtn', function() {
+  $('#framesInput').hide();
+});
+
+// 清空格子
+$(document).on('click', '#clearFramesBtn', function() {
+  $('.frame-input').val('');
+  $('#gameScore').val('');
+  $('#gameStrikes').val(0);
+  $('#gameSpares').val(0);
+});
+
+// 計算並填入分數（從逐格輸入）
+$(document).on('click', '#calcFramesBtn', function() {
+  const frames = collectFramesFromUI();
+  const validation = validateFrames(frames);
+  if (!validation.ok) {
+    alert('輸入錯誤：' + validation.message);
+    return;
+  }
+
+  const result = calculateScoreFromFrames(frames);
+  // 填入表單欄位
+  $('#gameScore').val(result.total);
+  $('#gameStrikes').val(result.strikes);
+  $('#gameSpares').val(result.spares);
+  // 更新顯示（但不提交）
+  alert(`計算完成：總分 ${result.total}，全倒 ${result.strikes}，補中 ${result.spares}`);
+});
+
+/**
+ * 從 UI 收集 frames 資料，返回 frames: Array[10] of Array rolls (strings)
+ */
+function collectFramesFromUI() {
+  const frames = [];
+  for (let f = 1; f <= 10; f++) {
+    const rolls = [];
+    const maxRolls = f === 10 ? 3 : 2;
+    for (let r = 0; r < maxRolls; r++) {
+      const val = $(`.frame-input[data-frame='${f}'][data-roll='${r}']`).val();
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        rolls.push(String(val).trim());
+      }
+    }
+    frames.push(rolls);
+  }
+  return frames;
+}
+
+/**
+ * 驗證 frames 是否合理（基礎驗證）
+ */
+function validateFrames(frames) {
+  // frames 必須為 10 個
+  if (!Array.isArray(frames) || frames.length !== 10) return { ok: false, message: 'frames 必須包含 10 格' };
+  for (let i = 0; i < 9; i++) {
+    const r = frames[i];
+    if (r.length === 0) continue; // 允許空（表示不使用逐格輸入）
+    if (r.length > 2) return { ok: false, message: `第 ${i+1} 格最多兩次投球` };
+    // 如果第一投是 X，第二投應為空
+    if (/^x$/i.test(r[0]) && r.length > 1) return { ok: false, message: `第 ${i+1} 格若為 X，請只輸入一次` };
+    // 驗證字符
+    for (let j = 0; j < r.length; j++) {
+      if (!/^[0-9Xx\/]$/.test(r[j])) return { ok: false, message: `第 ${i+1} 格第 ${j+1} 投輸入不合法 (${r[j]})` };
+    }
+    // 若第二投為 /，則第一投必須為數字
+    if (r.length === 2 && r[1] === '/') {
+      if (!/^[0-9]$/.test(r[0])) return { ok: false, message: `第 ${i+1} 格第二投為 / 時，第一投須為數字` };
+    }
+  }
+  // 第十格：最多 3 個輸入，內容限制
+  const last = frames[9];
+  if (last.length > 3) return { ok: false, message: '第10格最多三次投球' };
+  for (let j = 0; j < last.length; j++) {
+    if (!/^[0-9Xx\/]$/.test(last[j])) return { ok: false, message: `第10格第 ${j+1} 投輸入不合法 (${last[j]})` };
+  }
+  return { ok: true };
+}
+
+/**
+ * 將 frames 轉換為 rolls（數字），並計算總分
+ * frames: Array[10] of Array of strings
+ * 回傳 { total, strikes, spares }
+ */
+function calculateScoreFromFrames(frames) {
+  const rolls = [];
+  // 1-9
+  for (let i = 0; i < 9; i++) {
+    const f = frames[i];
+    if (f.length === 0) continue;
+    const a = f[0];
+    if (/^x$/i.test(a)) {
+      rolls.push(10);
+    } else {
+      const first = /^[0-9]$/.test(a) ? parseInt(a, 10) : 0;
+      if (f.length > 1) {
+        const b = f[1];
+        if (b === '/') {
+          rolls.push(first);
+          rolls.push(10 - first);
+        } else if (/^[0-9]$/.test(b)) {
+          rolls.push(first);
+          rolls.push(parseInt(b, 10));
+        } else {
+          // invalid char - treat as 0
+          rolls.push(first);
+          rolls.push(0);
+        }
+      } else {
+        // only one entry (e.g., first roll only)
+        rolls.push(first);
+      }
+    }
+  }
+  // 第10格
+  const last = frames[9];
+  for (let k = 0; k < last.length; k++) {
+    const v = last[k];
+    if (/^x$/i.test(v)) {
+      rolls.push(10);
+    } else if (v === '/') {
+      const prev = rolls.length > 0 ? rolls[rolls.length -1] : 0;
+      rolls.push(10 - prev);
+    } else if (/^[0-9]$/.test(v)) {
+      rolls.push(parseInt(v,10));
+    } else {
+      rolls.push(0);
+    }
+  }
+
+  // 計算總分
+  let total = 0;
+  let rollIndex = 0;
+  let strikesCount = 0;
+  let sparesCount = 0;
+  for (let frame = 0; frame < 10; frame++) {
+    const r1 = rolls[rollIndex] !== undefined ? rolls[rollIndex] : 0;
+    const r2 = rolls[rollIndex + 1] !== undefined ? rolls[rollIndex + 1] : 0;
+    if (r1 === 10) {
+      // strike
+      const bonus1 = rolls[rollIndex + 1] !== undefined ? rolls[rollIndex + 1] : 0;
+      const bonus2 = rolls[rollIndex + 2] !== undefined ? rolls[rollIndex + 2] : 0;
+      total += 10 + bonus1 + bonus2;
+      rollIndex += 1;
+      strikesCount++;
+    } else if (r1 + r2 === 10) {
+      // spare
+      const bonus = rolls[rollIndex + 2] !== undefined ? rolls[rollIndex + 2] : 0;
+      total += 10 + bonus;
+      rollIndex += 2;
+      sparesCount++;
+    } else {
+      total += r1 + r2;
+      rollIndex += 2;
+    }
+  }
+
+  return { total, strikes: strikesCount, spares: sparesCount };
+}
+
+// ==========================================
+// 鍵盤互動：將鍵盤輸入傳遞到被選中的格子
+// ==========================================
+
+let activeInput = null; // jQuery element
+
+// 點擊格子時，設定 activeInput（改為 readonly，所以仍可被點選）
+$(document).on('click', '.frame-input', function(e) {
+  $('.frame-input').removeClass('active');
+  $(this).addClass('active');
+  activeInput = $(this);
+});
+
+// 鍵盤按鍵事件
+$(document).on('click', '.keypad-key', function() {
+  const key = $(this).text().trim();
+  if (!activeInput) {
+    alert('請先選擇要輸入的格子');
+    return;
+  }
+  handleKeypadInput(key);
+});
+
+// 刪除鍵
+$(document).on('click', '#keyDel', function() {
+  if (!activeInput) return;
+  activeInput.val('');
+  activeInput.removeClass('active');
+  activeInput.focus();
+});
+
+// 下一個按鍵（移到下一個可輸入的格子）
+$(document).on('click', '#keyNext', function() {
+  if (!activeInput) return;
+  moveToNextInput(activeInput);
+});
+
+// 處理鍵盤輸入的核心邏輯
+function handleKeypadInput(key) {
+  // Standardize X and /
+  if (key === 'x' || key === 'X') key = 'X';
+  if (key === '/') key = '/';
+
+  // only allow valid chars
+  if (!/^[0-9X\/]$/.test(key)) return;
+
+  // set value
+  activeInput.val(key);
+
+  // 自動移位邏輯
+  autoAdvanceAfterInput(activeInput, key);
+}
+
+function autoAdvanceAfterInput($input, key) {
+  const frame = parseInt($input.data('frame'), 10);
+  const roll = parseInt($input.data('roll'), 10);
+
+  // 若為 1-9 框，且輸入 X（strike）時，移到下一格第一投
+  if (frame < 10) {
+    if (key === 'X') {
+      // find next frame first roll
+      const next = $(`.frame-input[data-frame='${frame+1}'][data-roll='0']`);
+      if (next.length) {
+        $('.frame-input').removeClass('active');
+        next.addClass('active');
+        activeInput = next;
+      }
+      return;
+    }
+
+    // 如果是在第一投且輸入數字，移到同格第二投
+    if (roll === 0 && /^[0-9]$/.test(key)) {
+      const second = $(`.frame-input[data-frame='${frame}'][data-roll='1']`);
+      if (second.length) {
+        $('.frame-input').removeClass('active');
+        second.addClass('active');
+        activeInput = second;
+      }
+      return;
+    }
+
+    // 如果是在第二投，輸入後移到下一格第一投
+    if (roll === 1) {
+      const next = $(`.frame-input[data-frame='${frame+1}'][data-roll='0']`);
+      if (next.length) {
+        $('.frame-input').removeClass('active');
+        next.addClass('active');
+        activeInput = next;
+      }
+      return;
+    }
+  } else {
+    // 第10格特殊處理：若還有未填的下一投，移到下一個
+    const maxRolls = 3;
+    for (let r = roll + 1; r < maxRolls; r++) {
+      const next = $(`.frame-input[data-frame='10'][data-roll='${r}']`);
+      if (next.length && next.val() === '') {
+        $('.frame-input').removeClass('active');
+        next.addClass('active');
+        activeInput = next;
+        return;
+      }
+    }
+    // 否則不移動
+  }
+}
+
+function moveToNextInput($input) {
+  const frame = parseInt($input.data('frame'), 10);
+  const roll = parseInt($input.data('roll'), 10);
+  if (frame < 10) {
+    if (roll === 0) {
+      const second = $(`.frame-input[data-frame='${frame}'][data-roll='1']`);
+      if (second.length) { $('.frame-input').removeClass('active'); second.addClass('active'); activeInput = second; return; }
+    }
+    const next = $(`.frame-input[data-frame='${frame+1}'][data-roll='0']`);
+    if (next.length) { $('.frame-input').removeClass('active'); next.addClass('active'); activeInput = next; }
+  } else {
+    // 第10格
+    for (let r = roll + 1; r < 3; r++) {
+      const next = $(`.frame-input[data-frame='10'][data-roll='${r}']`);
+      if (next.length) { $('.frame-input').removeClass('active'); next.addClass('active'); activeInput = next; return; }
+    }
+  }
+}
