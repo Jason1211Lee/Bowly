@@ -781,7 +781,7 @@ function updateKeypadAvailability() {
   if (frame < 10) {
     // 第一投
     if (roll === 0) {
-      // 第一投不能使用 /
+      // 第一投不能使用 / (spare)
       $('[data-digit="/"]').prop('disabled', true).addClass('disabled');
     }
     // 第二投
@@ -794,16 +794,19 @@ function updateKeypadAvailability() {
         return;
       }
 
-      // 如果第一投是數字，禁用會導致總和超過 10 的數字
+      // 如果第一投是數字，根據第一投數字禁用超過範圍的數字
       if (/^[0-9]$/.test(firstRoll)) {
         const firstNum = parseInt(firstRoll, 10);
+        const maxSecondRoll = 10 - firstNum; // 最多還能倒多少瓶
         
         // 禁用第二投數字 (0-9)
+        // 原則：如果 firstNum + secondNum > 10，則需要用 / 表示補中，不用數字表示
         for (let i = 0; i <= 9; i++) {
           const btnElement = $(`[data-digit="${i}"]`);
           if (btnElement.length) {
-            // 只有當 firstNum + i <= 10 時才允許
-            if (firstNum + i > 10) {
+            // 只有當 firstNum + i <= 10 時才允許數字輸入
+            if (i > maxSecondRoll) {
+              // 例如 firstNum=4，maxSecondRoll=6，則 6-9 都禁用（因為應該用 / 表示）
               btnElement.prop('disabled', true).addClass('disabled');
             } else {
               btnElement.prop('disabled', false).removeClass('disabled');
@@ -814,7 +817,7 @@ function updateKeypadAvailability() {
         // 禁用 X（第二投不能是全倒）
         $('[data-digit="X"]').prop('disabled', true).addClass('disabled');
         
-        // / 永遠可用（表示補中）
+        // / 永遠可用（表示補中，即第一投 + 6+ = 10）
         $('[data-digit="/"]').prop('disabled', false).removeClass('disabled');
       }
     }
@@ -891,13 +894,14 @@ function handleKeypadInput(key) {
       // 第一投是數字時的驗證
       if (/^[0-9]$/.test(firstRoll)) {
         const firstNum = parseInt(firstRoll, 10);
+        const maxSecondRoll = 10 - firstNum; // 最多還能倒多少瓶
 
-        // 第二投只能是數字或 /
+        // 第二投只能是數字（0 到 maxSecondRoll）或 /
         if (/^[0-9]$/.test(key)) {
           const secondNum = parseInt(key, 10);
-          // 檢查總和是否超過 10
-          if (firstNum + secondNum > 10) {
-            alert(`❌ 第一投 ${firstNum} + 第二投 ${secondNum} = ${firstNum + secondNum}，超過 10 瓶`);
+          // 檢查輸入的數字是否在允許範圍內
+          if (secondNum > maxSecondRoll) {
+            alert(`❌ 第一投 ${firstNum} 已倒下，最多還能倒 ${maxSecondRoll} 瓶，請輸入 0-${maxSecondRoll} 或使用「/」表示補中`);
             return;
           }
           activeInput.val(key);
