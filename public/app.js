@@ -1,12 +1,16 @@
 // ==========================================
-// Bowly 應用核心邏輯
+// Bowly 應用核心邏輯（支援 Firestore 同步）
 // ==========================================
+
+import { auth, db } from "./firebase-config.js";
+import { currentUser, showGameView } from "./auth.js";
+import { doc, getDoc, setDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
 // 常數
 const STORAGE_KEY = 'bowlyRecords';
 const TARGET_KEY = 'bowlyTarget';
 
-// 初始化 - 從 localStorage 讀取數據
+// 初始化 - 從 localStorage 讀取數據（備用）
 let records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
 let targetScore = parseFloat(localStorage.getItem(TARGET_KEY)) || 170;
 
@@ -14,12 +18,15 @@ let targetScore = parseFloat(localStorage.getItem(TARGET_KEY)) || 170;
 let trendChart = null;
 let statsChart = null;
 
+// Firestore 監聽器參考
+let firestoreUnsubscribe = null;
+
 // ==========================================
 // 數據管理函式
 // ==========================================
 
 /**
- * 添加新紀錄到 records 並保存到 localStorage
+ * 添加新紀錄到 records 並保存到 localStorage + Firestore
  * @param {Object} record - 包含 date, score, strikes, spares
  * @returns {boolean} - 是否成功添加
  */
@@ -34,12 +41,18 @@ function addGame(record) {
   
   // 保存到 localStorage
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  
+  // 同步到 Firestore（若已登入）
+  if (currentUser) {
+    syncRecordsToFirestore();
+  }
+  
   return true;
 }
 
 /**
  * 刪除指定日期的紀錄
- * @param {string} date - ISO 格式日期
+ * @param {string} date - ISO 格式日期或 ID
  */
 function removeGame(date) {
   // 保留向後相容性：若傳入的是 id（優先），否則視為 date 並刪除所有該日期
@@ -52,6 +65,11 @@ function removeGame(date) {
     records = records.filter(r => r.date !== date);
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  
+  // 同步到 Firestore（若已登入）
+  if (currentUser) {
+    syncRecordsToFirestore();
+  }
 }
 
 /**
@@ -61,6 +79,11 @@ function clearAllRecords() {
   if (confirm('確定要清空所有紀錄嗎？此操作無法撤銷。')) {
     records = [];
     localStorage.removeItem(STORAGE_KEY);
+    
+    // 同步到 Firestore（若已登入）
+    if (currentUser) {
+      syncRecordsToFirestore();
+    }
   }
 }
 
@@ -70,6 +93,97 @@ function clearAllRecords() {
  */
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+// ==========================================
+// Firestore 同步函數
+// ==========================================
+
+/**
+ * 將記錄同步到 Firestore
+ */
+async function syncRecordsToFirestore() {
+  if (!currentUser) return;
+  
+  try {
+    const userDocRef = doc(db, "users", currentUser.uid);
+    await updateDoc(userDocRef, {
+      records: records,
+      target: targetScore,
+      lastUpdated: new Date().toISOString()
+    });
+    console.log('✅ Firestore 同步完成');
+  } catch (error) {
+    console.error('❌ Firestore 同步失敗:', error);
+  }
+}
+
+/**
+ * 從 Firestore 載入使用者的記錄
+ */
+async function loadRecordsFromFirestore() {
+  if (!currentUser) return;
+  
+  try {
+    const userDocRef = doc(db, "users", currentUser.uid);
+    const docSnap = await getDoc(userDocRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      records = data.records || [];
+      targetScore = data.target || 170;
+      
+      // 更新 localStorage 為 Firestore 的資料
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      localStorage.setItem(TARGET_KEY, targetScore);
+      
+      console.log('✅ Firestore 資料已載入');
+      refreshUI();
+    } else {
+      console.log('⚠️ Firestore 中無使用者資料');
+    }
+  } catch (error) {
+    console.error('❌ Firestore 載入失敗:', error);
+  }
+}
+
+/**
+ * 設定 Firestore 即時監聽（當資料改變時自動更新本地）
+ */
+function setupFirestoreListener() {
+  if (!currentUser || firestoreUnsubscribe) return;
+  
+  try {
+    const userDocRef = doc(db, "users", currentUser.uid);
+    firestoreUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        records = data.records || [];
+        targetScore = data.target || 170;
+        
+        // 更新 localStorage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+        localStorage.setItem(TARGET_KEY, targetScore);
+        
+        console.log('📡 Firestore 資料已更新（來自其他裝置）');
+        refreshUI();
+      }
+    });
+    console.log('✅ Firestore 監聽已開始');
+  } catch (error) {
+    console.error('❌ Firestore 監聽設定失敗:', error);
+  }
+}
+
+/**
+ * 停止 Firestore 監聽
+ */
+function stopFirestoreListener() {
+  if (firestoreUnsubscribe) {
+    firestoreUnsubscribe();
+    firestoreUnsubscribe = null;
+    console.log('✅ Firestore 監聽已停止');
+  }
 }
 
 // ==========================================
@@ -329,6 +443,21 @@ function refreshUI() {
 // ==========================================
 
 $(document).ready(function() {
+  // 監聽認證狀態變化（當用戶登入時）
+  let authInitialized = false;
+  const checkAuth = setInterval(() => {
+    if (currentUser && !authInitialized) {
+      authInitialized = true;
+      clearInterval(checkAuth);
+      
+      console.log('✅ 用戶已登入，準備載入 Firestore 資料');
+      setTimeout(() => {
+        loadRecordsFromFirestore();
+        setupFirestoreListener();
+        $('#navAuth').show();
+      }, 500);
+    }
+  }, 100);
   // 表單提交
   $('#gameForm').on('submit', function(e) {
     e.preventDefault();
