@@ -6,26 +6,41 @@
 
 ```
 Bowly/
-├── index.html           # 主要頁面（HTML 骨架、Bootstrap CDN）
-├── app.js               # 核心業務邏輯（數據管理、統計計算、事件綁定）
-├── style.css            # 全局樣式與 RWD 適配
+├── public/                      # 前端應用文件（靜態資源）
+│   ├── index.html              # 主頁面
+│   ├── app.js                  # 前端邏輯
+│   └── style.css               # 樣式文件
+├── server.js                   # Express 伺服器（生產環境）
+├── package.json                # NPM 依賴與啟動腳本
+├── .env                        # 環境配置（本地開發）
+├── .env.example                # 環境配置模板
+├── start.bat                   # Windows 快速啟動腳本
+├── start.sh                    # macOS/Linux 快速啟動腳本
+├── QUICKSTART.md               # 快速啟動指南
+├── README.md                   # 完整文檔與部署指南
 ├── .github/
-│   └── copilot-instructions.md
-└── README.md
+│   └── copilot-instructions.md # 本文件
+└── .gitignore
 ```
 
 **技術棧**：
 
-**前端（MVP）**：
+**前端**（客戶端）：
 - HTML5 + CSS3 + Bootstrap（RWD 結構）
-- JavaScript / jQuery：表單驗證、事件綁定、數據處理
-- Chart.js（CDN）：折線圖、餅圖/長條圖
+- JavaScript + jQuery：表單驗證、事件綁定、數據處理
+- Chart.js（CDN）：折線圖、甜甜圈圖
 - LocalStorage：本地存儲記錄（JSON 格式）
 
-**後端（可選升級）**：
+**後端**（Express 伺服器）：
+- Node.js + Express：靜態文件服務、CORS、API
+- compression：Gzip 壓縮
+- cors：跨域資源共享
+- dotenv：環境變數管理
+
+**部署**（可選升級）：
+- Vercel / Heroku：無伺服器部署
 - Firebase Realtime Database：雲端儲存、跨裝置同步
-- Firebase Authentication：Email/Google 登入
-- Node.js + Express（可選）：自建 API、第三方整合
+- Firebase Authentication：用戶認證
 
 ## 核心功能規範
 
@@ -70,18 +85,24 @@ Bowly/
 ## 開發優先級與工作流
 
 **MVP 階段**（第 1-4 週）：
-1. 搭建 HTML 結構 + Bootstrap 響應式框架
-2. 實現 LocalStorage 數據管理（增刪查改）
-3. 表單驗證 + 去重邏輯
-4. 統計計算函數（平均、最高、場次、差距）
-5. Chart.js 折線圖 + 餅圖整合
-6. 基礎 CSS 樣式 + 行動版適配
+1. ✅ 搭建 HTML 結構 + Bootstrap 響應式框架
+2. ✅ 實現 LocalStorage 數據管理（增刪查改）
+3. ✅ 表單驗證 + 去重邏輯
+4. ✅ 統計計算函數（平均、最高、場次、差距）
+5. ✅ Chart.js 折線圖 + 甜甜圈圖整合
+6. ✅ 基礎 CSS 樣式 + 行動版適配
+7. ✅ Express 伺服器整合 + 一鍵啟動
+
+**啟動應用**：
+- Windows：雙擊 `start.bat`
+- macOS/Linux：執行 `./start.sh` 或 `npm start`
+- 訪問 `http://localhost:3000`
 
 **進階階段**（可選）：
-7. 導出/導入 JSON 功能
-8. AI 建議模塊（可使用 OpenAI API 或預設樣板）
-9. 目標歷史管理
+8. 導出/導入 JSON 功能 ✅
+9. AI 建議模塊（可使用 OpenAI API 或預設樣板） ✅
 10. Firebase 遷移（雲端同步）
+11. 線上部署（Vercel / Heroku）
 
 ## 核心約定與模式
 
