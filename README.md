@@ -22,7 +22,7 @@
 
 ### 安裝步驟
 
-1. **克隆或下載項目**
+1. **clone或下載項目**
    ```bash
    git clone https://github.com/Jason1211Lee/Bowly.git
    cd Bowly
@@ -261,13 +261,13 @@ NODE_ENV=development        # 開發或生產
 
 ## 📞 技術支持
 
-- 📧 Email: support@example.com
+- 📧 Email: jason1211.lee@gmail.com
 - 💬 GitHub Issues: https://github.com/Jason1211Lee/Bowly/issues
 - 📖 Wiki: https://github.com/Jason1211Lee/Bowly/wiki
 
 ## 🙏 致謝
 
-感謝所有貢獻者和使用者的支持！
+感謝所有使用者的支持！
 
 ---
 
