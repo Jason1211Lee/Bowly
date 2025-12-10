@@ -756,11 +756,78 @@ $(document).on('click', '.frame-input', function(e) {
   $('.frame-input').removeClass('active');
   $(this).addClass('active');
   activeInput = $(this);
+  
+  // 更新鍵盤按鈕的可用狀態
+  updateKeypadAvailability();
 });
+
+/**
+ * 根據當前輸入框的狀態，動態更新鍵盤按鈕的可用性
+ */
+function updateKeypadAvailability() {
+  if (!activeInput) {
+    // 重置所有按鈕為啟用
+    $('.keypad-key').prop('disabled', false).removeClass('disabled');
+    return;
+  }
+
+  const frame = parseInt(activeInput.data('frame'), 10);
+  const roll = parseInt(activeInput.data('roll'), 10);
+
+  // 重置所有按鈕為啟用
+  $('.keypad-key').prop('disabled', false).removeClass('disabled');
+
+  // 第 1-9 框的邏輯
+  if (frame < 10) {
+    // 第一投
+    if (roll === 0) {
+      // 第一投不能使用 /
+      $('[data-digit="/"]').prop('disabled', true).addClass('disabled');
+    }
+    // 第二投
+    else if (roll === 1) {
+      const firstRoll = $(`.frame-input[data-frame='${frame}'][data-roll='0']`).val();
+      
+      // 如果第一投是 X，禁用所有按鈕（不需要第二投）
+      if (/^x$/i.test(firstRoll)) {
+        $('.keypad-key').prop('disabled', true).addClass('disabled');
+        return;
+      }
+
+      // 如果第一投是數字，禁用會導致總和超過 10 的數字
+      if (/^[0-9]$/.test(firstRoll)) {
+        const firstNum = parseInt(firstRoll, 10);
+        
+        // 禁用第二投數字 (0-9)
+        for (let i = 0; i <= 9; i++) {
+          const btnElement = $(`[data-digit="${i}"]`);
+          if (btnElement.length) {
+            // 只有當 firstNum + i <= 10 時才允許
+            if (firstNum + i > 10) {
+              btnElement.prop('disabled', true).addClass('disabled');
+            } else {
+              btnElement.prop('disabled', false).removeClass('disabled');
+            }
+          }
+        }
+        
+        // 禁用 X（第二投不能是全倒）
+        $('[data-digit="X"]').prop('disabled', true).addClass('disabled');
+        
+        // / 永遠可用（表示補中）
+        $('[data-digit="/"]').prop('disabled', false).removeClass('disabled');
+      }
+    }
+  }
+  // 第 10 框：允許所有輸入
+}
 
 // 鍵盤按鍵事件
 $(document).on('click', '.keypad-key', function() {
-  const key = $(this).text().trim();
+  if ($(this).prop('disabled')) {
+    return; // 禁用的按鈕不執行
+  }
+  const key = $(this).data('digit');
   if (!activeInput) {
     alert('請先選擇要輸入的格子');
     return;
@@ -791,8 +858,65 @@ function handleKeypadInput(key) {
   // only allow valid chars
   if (!/^[0-9X\/]$/.test(key)) return;
 
-  // set value
-  activeInput.val(key);
+  const frame = parseInt(activeInput.data('frame'), 10);
+  const roll = parseInt(activeInput.data('roll'), 10);
+
+  // 第 1-9 框的驗證邏輯
+  if (frame < 10) {
+    // 第一投的驗證
+    if (roll === 0) {
+      // 第一投不能是 / (spare)
+      if (key === '/') {
+        alert('❌ 第一投不能輸入「/」');
+        return;
+      }
+      activeInput.val(key);
+    }
+    // 第二投的驗證
+    else if (roll === 1) {
+      // 獲取第一投的值
+      const firstRoll = $(`.frame-input[data-frame='${frame}'][data-roll='0']`).val();
+      
+      if (!firstRoll || firstRoll === '') {
+        alert('❌ 請先輸入第一投');
+        return;
+      }
+
+      // 如果第一投是 X，第二投不能有值
+      if (/^x$/i.test(firstRoll)) {
+        alert('❌ 第一投已是全倒 (X)，無需第二投');
+        return;
+      }
+
+      // 第一投是數字時的驗證
+      if (/^[0-9]$/.test(firstRoll)) {
+        const firstNum = parseInt(firstRoll, 10);
+
+        // 第二投只能是數字或 /
+        if (/^[0-9]$/.test(key)) {
+          const secondNum = parseInt(key, 10);
+          // 檢查總和是否超過 10
+          if (firstNum + secondNum > 10) {
+            alert(`❌ 第一投 ${firstNum} + 第二投 ${secondNum} = ${firstNum + secondNum}，超過 10 瓶`);
+            return;
+          }
+          activeInput.val(key);
+        } else if (key === '/') {
+          // / 表示補中（第一投 + 第二投 = 10）
+          activeInput.val(key);
+        } else {
+          alert('❌ 無效的輸入');
+          return;
+        }
+      } else {
+        alert('❌ 無效的第一投值');
+        return;
+      }
+    }
+  } else {
+    // 第 10 框特殊規則
+    activeInput.val(key);
+  }
 
   // 自動移位邏輯
   autoAdvanceAfterInput(activeInput, key);
