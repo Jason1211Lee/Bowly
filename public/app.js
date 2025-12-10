@@ -635,32 +635,65 @@ function collectFramesFromUI() {
 }
 
 /**
- * 驗證 frames 是否合理（基礎驗證）
+ * 驗證 frames 是否合理（強化驗證）
  */
 function validateFrames(frames) {
   // frames 必須為 10 個
   if (!Array.isArray(frames) || frames.length !== 10) return { ok: false, message: 'frames 必須包含 10 格' };
+  
   for (let i = 0; i < 9; i++) {
     const r = frames[i];
     if (r.length === 0) continue; // 允許空（表示不使用逐格輸入）
     if (r.length > 2) return { ok: false, message: `第 ${i+1} 格最多兩次投球` };
+    
     // 如果第一投是 X，第二投應為空
     if (/^x$/i.test(r[0]) && r.length > 1) return { ok: false, message: `第 ${i+1} 格若為 X，請只輸入一次` };
+    
     // 驗證字符
     for (let j = 0; j < r.length; j++) {
-      if (!/^[0-9Xx\/]$/.test(r[j])) return { ok: false, message: `第 ${i+1} 格第 ${j+1} 投輸入不合法 (${r[j]})` };
+      if (!/^[0-9X\/]$/i.test(r[j])) return { ok: false, message: `第 ${i+1} 格第 ${j+1} 投輸入不合法 (${r[j]})` };
     }
-    // 若第二投為 /，則第一投必須為數字
-    if (r.length === 2 && r[1] === '/') {
-      if (!/^[0-9]$/.test(r[0])) return { ok: false, message: `第 ${i+1} 格第二投為 / 時，第一投須為數字` };
+    
+    // 第一投是數字時，驗證與第二投的組合
+    if (/^[0-9]$/.test(r[0])) {
+      const firstNum = parseInt(r[0], 10);
+      
+      // 第一投不能是 /
+      if (r[0] === '/') return { ok: false, message: `第 ${i+1} 格第一投不能是「/」` };
+      
+      // 有第二投時，驗證總和不超過 10
+      if (r.length > 1) {
+        const secondVal = r[1];
+        
+        // 第二投不能是 X
+        if (/^x$/i.test(secondVal)) return { ok: false, message: `第 ${i+1} 格第二投不能是全倒 (X)` };
+        
+        // 第二投是數字時，檢查 firstNum + secondNum <= 10
+        if (/^[0-9]$/.test(secondVal)) {
+          const secondNum = parseInt(secondVal, 10);
+          if (firstNum + secondNum > 10) {
+            return { ok: false, message: `第 ${i+1} 格：第一投 ${firstNum} + 第二投 ${secondNum} = ${firstNum + secondNum}，超過 10 瓶` };
+          }
+        }
+        // 第二投是 / 時，表示補中（合法）
+        else if (secondVal === '/') {
+          // 補中是合法的
+        }
+      }
+    }
+    // 第一投是 X 時的驗證
+    else if (/^x$/i.test(r[0])) {
+      if (r.length > 1) return { ok: false, message: `第 ${i+1} 格若為 X（全倒），無需第二投` };
     }
   }
-  // 第十格：最多 3 個輸入，內容限制
-  const last = frames[9];
-  if (last.length > 3) return { ok: false, message: '第10格最多三次投球' };
-  for (let j = 0; j < last.length; j++) {
-    if (!/^[0-9Xx\/]$/.test(last[j])) return { ok: false, message: `第10格第 ${j+1} 投輸入不合法 (${last[j]})` };
+  
+  // 第十格驗證
+  const tenth = frames[9];
+  if (tenth.length > 3) return { ok: false, message: '第10格最多三次投球' };
+  for (let j = 0; j < tenth.length; j++) {
+    if (!/^[0-9X\/]$/i.test(tenth[j])) return { ok: false, message: `第10格第 ${j+1} 投輸入不合法 (${tenth[j]})` };
   }
+  
   return { ok: true };
 }
 
@@ -759,6 +792,74 @@ $(document).on('click', '.frame-input', function(e) {
   
   // 更新鍵盤按鈕的可用狀態
   updateKeypadAvailability();
+});
+
+/**
+ * 監聽 frame-input 的輸入事件，即時驗證
+ */
+$(document).on('input', '.frame-input', function() {
+  const frame = parseInt($(this).data('frame'), 10);
+  const roll = parseInt($(this).data('roll'), 10);
+  let value = $(this).val().toUpperCase();
+
+  // 只允許 0-9, X, /
+  if (value && !/^[0-9X\/]$/.test(value)) {
+    $(this).val('');
+    return;
+  }
+
+  // 第 1-9 框驗證
+  if (frame < 10) {
+    // 第一投驗證
+    if (roll === 0) {
+      // 第一投不能是 /
+      if (value === '/') {
+        $(this).val('');
+        alert('❌ 第一投不能輸入「/」');
+        return;
+      }
+    }
+    // 第二投驗證
+    else if (roll === 1) {
+      const firstRoll = $(`.frame-input[data-frame='${frame}'][data-roll='0']`).val().toUpperCase();
+      
+      if (!firstRoll) {
+        $(this).val('');
+        alert('❌ 請先輸入第一投');
+        return;
+      }
+
+      // 第一投是 X 時，第二投不能有值
+      if (firstRoll === 'X') {
+        $(this).val('');
+        alert('❌ 第一投已是全倒 (X)，無需第二投');
+        return;
+      }
+
+      // 第一投是數字時，驗證第二投
+      if (/^[0-9]$/.test(firstRoll)) {
+        const firstNum = parseInt(firstRoll, 10);
+        const maxSecondRoll = 10 - firstNum;
+
+        // 第二投是數字時，檢查範圍
+        if (/^[0-9]$/.test(value)) {
+          const secondNum = parseInt(value, 10);
+          if (secondNum > maxSecondRoll) {
+            $(this).val('');
+            alert(`❌ 第一投 ${firstNum}，最多還能倒 ${maxSecondRoll} 瓶，請輸入 0-${maxSecondRoll} 或使用「/」表示補中`);
+            return;
+          }
+        }
+        // 第二投是 X 不允許
+        else if (value === 'X') {
+          $(this).val('');
+          alert('❌ 第二投不能是全倒 (X)');
+          return;
+        }
+      }
+    }
+  }
+  // 第 10 框允許所有字符
 });
 
 /**
